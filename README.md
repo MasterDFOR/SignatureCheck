@@ -4,6 +4,6 @@ If a PE file is not signed, it generates a list of unsigned files on the Desktop
 
 Note:
 This code is tested with the CLion IDE, it may have errors if have it run within Visual Studio. 
-Make sure that your CMakeList.txt contains target_link_libraries(untitled3 wintrust), which links the script to Wintrust library.
-WinVerifyTrust has discrepancy on signature validation with SigCheck tool. It has identical signature with VirusTotal while SigCheck may other validation mechanism.
+Make sure that your CMakeList.txt contains target_link_libraries(Your_Tool_Name wintrust), which links the script to Wintrust library.
+WinVerifyTrust has discrepancy on signature validation with SigCheck tool. It has identical signature with VirusTotal while SigCheck may use other validation mechanism.
 If you want to kill a Windows Protected process such as Regedit.exe, please run with Administrator rights.
