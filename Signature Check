@@ -1,16 +1,165 @@
-#include <Windows.h>
-#include <Softpub.h>
-#include <Wintrust.h>
 #include <iostream>
 #include <string>
+#include <vector>
+#include <Windows.h>
+#include <iomanip>
+#include <guiddef.h>
+#include <Softpub.h>
+#include <string.h>
+#include <fstream>
+#include <tlhelp32.h>
+#include <locale>
+#include <codecvt>
+
+void terminateProcess(DWORD pid);
+void killProcessName(std::string processName);
+std::string windowsVerify(std::wstring pwszSourceFile);
+std::string sigCheck(const std::string& filepath);
+
+using namespace std;
 #pragma comment(lib, "Wintrust.lib")
 #pragma comment(lib, "Crypt32.lib")
 
-int main()
+std::string WinVerifyTrust(std::string& filepath);
+std::string sigCheck(const std::string& filepath);
+
+int main() {
+    //scan all files in c:\windows\system32
+    std::string directory = "c:\\windows\\system32";
+
+    std::vector<std::string> pe_files;
+    std::cout << std::left << std::setw(100) << "Binary_Name" << std::setw(20) << "SigCheck" << std::setw(20) << "WinVerifyTrust_API" << std::endl;
+    std::cout << std::left << std::setw(100) << "======================================================================================" << std::setw(20) << "=========" << std::setw(20) << "==================" << std::endl;
+    WIN32_FIND_DATA file_data;
+    HANDLE search_handle = FindFirstFile((directory + "\\*.*").c_str(), &file_data);
+    if (search_handle != INVALID_HANDLE_VALUE) {
+        do {
+            if (!(file_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                std::string file_path = directory + "\\" + file_data.cFileName;
+
+                // Check if the file is a PE file
+                HANDLE file_handle = CreateFile(file_path.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+                if (file_handle != INVALID_HANDLE_VALUE) {
+                    IMAGE_DOS_HEADER dos_header;
+                    DWORD bytes_read;
+                    if (ReadFile(file_handle, &dos_header, sizeof(IMAGE_DOS_HEADER), &bytes_read, NULL) && dos_header.e_magic == IMAGE_DOS_SIGNATURE) {
+                        // The file is a PE file
+                        pe_files.push_back(file_path);
+                    }
+                    CloseHandle(file_handle);
+                }
+            }
+        } while (FindNextFile(search_handle, &file_data) != 0);
+
+        FindClose(search_handle);
+    }
+
+    // Print the list of PE files
+    for (const auto& file : pe_files) {
+        std::string filepath = file;
+//        << windowsVerify(filepath)
+//        << windowsVerify(pwszSourceFile)
+        //std::wstring pwszSourceFile = (basic_string<wchar_t> &&) file;
+
+        std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+        std::wstring pwszSourceFile = converter.from_bytes(filepath);
+        std::cout << std::left << std::setw(100) << filepath << std::setw(20) << sigCheck(filepath) << std::setw(20) << windowsVerify(pwszSourceFile)  << std::endl;
+        //windowsVerify(pwszSourceFile);
+
+    }
+
+    return 0;
+}
+
+
+std::string sigCheck(const std::string& filepath)
 {
+    std::string sigcheck_path = "D:\\Downloads\\Sigcheck\\sigcheck.exe";
+    std::string sigcheck_command = sigcheck_path + " "  + filepath;
+    FILE* pipe = _popen(sigcheck_command.c_str(), "r");
+    if (pipe)
+    {
+        char buffer[128];
+        while (!feof(pipe))
+        {
+            if (fgets(buffer, 128, pipe) != NULL)
+            {
+                std::string line(buffer);
+                //std::cout << line;
+                // the output of sigcheck has several lines. Look for the line which has "Verified".
+                if (line.find("Verified:") != std::string::npos && line.find("Signed") != std::string::npos)
+                {
+                    _pclose(pipe);
+                    return "Signed";
+                }
+            }
+        }
+        _pclose(pipe);
+    }
+    //open a file and write unsigned PE files into it
+    std::ofstream myfile(("C:\\Users\\chang\\OneDrive\\Desktop\\Unsigned.txt"), std::ofstream::out | std::ofstream::app);
+    if (myfile.is_open())
+    {
+        myfile << filepath + "\tUnsigned\n";
+        myfile.close();
+    }
+    else cout << "Unable to open file";
+    //kill unsigned binary files
+    std::string processName = filepath;
+    killProcessName(processName);
+
+    return "Unsigned";
+}
+
+void killProcessName(std::string processName){
+
+    // Enumerate all processes
+    PROCESSENTRY32 pe;
+    pe.dwSize = sizeof(PROCESSENTRY32);
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (Process32First(hSnapshot, &pe))
+    {
+        do
+        {
+            if (_stricmp(pe.szExeFile, processName.c_str()) == 0)
+            {
+                std::cout << "Terminating process with PID " << pe.th32ProcessID << std::endl;
+                terminateProcess(pe.th32ProcessID);
+            }
+        } while (Process32Next(hSnapshot, &pe));
+    }
+    CloseHandle(hSnapshot);
+}
+void terminateProcess(DWORD pid)
+{
+    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+    if (hProcess != NULL)
+    {
+        // Enumerate all child processes
+        PROCESSENTRY32 pe;
+        pe.dwSize = sizeof(PROCESSENTRY32);
+        HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (Process32First(hSnapshot, &pe))
+        {
+            do
+            {
+                if (pe.th32ParentProcessID == pid)
+                {
+                    terminateProcess(pe.th32ProcessID);
+                }
+            } while (Process32Next(hSnapshot, &pe));
+        }
+        CloseHandle(hSnapshot);
+
+        // Terminate the process
+        TerminateProcess(hProcess, 0);
+        CloseHandle(hProcess);
+    }
+}
+std::string windowsVerify(std::wstring pwszSourceFile){
+
     LONG lStatus;
     DWORD dwLastError;
-    std::wstring pwszSourceFile = L"C:\\Windows\\System32\\cmd.exe";
 
     // Initialize the WINTRUST_FILE_INFO structure.
     WINTRUST_FILE_INFO FileData;
@@ -39,69 +188,10 @@ int main()
     // WinVerifyTrust verifies signatures as specified by the GUID and Wintrust_Data.
     lStatus = WinVerifyTrust(NULL, &WVTPolicyGUID, &WinTrustData);
 
-    switch (lStatus) {
-
-        case ERROR_SUCCESS:
-            wprintf_s(L"The file \"%s\" is signed and the signature "
-                      L"was verified.\n",
-                      pwszSourceFile.c_str());
-            break;
-
-        case TRUST_E_NOSIGNATURE:
-            // The file was not signed or had a signature that was not valid.
-            dwLastError = GetLastError();
-
-            if (TRUST_E_NOSIGNATURE == dwLastError || TRUST_E_SUBJECT_FORM_UNKNOWN == dwLastError ||
-                TRUST_E_PROVIDER_UNKNOWN == dwLastError) {
-                // The file was not signed.
-                wprintf_s(L"The file \"%s\" is not signed.\n", pwszSourceFile.c_str());
-            } else {
-                // The signature was not valid or there was an error opening the file.
-                wprintf_s(L"An unknown error occurred trying to "
-                          L"verify the signature of the \"%s\" file.\n",
-                          pwszSourceFile.c_str());
-            }
-
-            break;
-
-        case TRUST_E_EXPLICIT_DISTRUST:
-            // The hash that represents the subject or the publisher is not allowed by the admin or user.
-            wprintf_s(L"The signature is present, but specifically "
-                      L"disallowed.\n");
-            break;
-
-        case TRUST_E_SUBJECT_NOT_TRUSTED:
-            // The user clicked "No" when asked to install and run.
-            wprintf_s(L"The signature is present, but not "
-                      L"trusted.\n");
-            break;
-
-        case CRYPT_E_SECURITY_SETTINGS:
-// The hash that represents the subject or the publisher was not explicitly trusted by the admin and the admin
-// Any hWVTStateData must be released by a call with close.
-
-            wprintf_s(L"CRYPT_E_SECURITY_SETTINGS - The hash "
-                      L"representing the subject or the publisher wasn't "
-                      L"explicitly trusted by the admin and admin policy "
-                      L"has disabled user trust. No signature, publisher "
-                      L"or timestamp errors.\n");
-            break;
-
-        default:
-            // The UI was disabled in dwUIChoice or the admin policy
-            // has disabled user trust. lStatus contains the
-            // publisher or time stamp chain error.
-            wprintf_s(L"Error is: 0x%x.\n",
-                      lStatus);
-            break;
+    if (lStatus==ERROR_SUCCESS) {
+            return "Signed";
     }
+
     WinTrustData.dwStateAction = WTD_STATEACTION_CLOSE;
-
-//    lStatus = WinVerifyTrust(
-//            NULL,
-//            &WVTPolicyGUID,
-//            &WinTrustData);
-
-
-    return 0;
+    return "unsigned";
 }
