@@ -16,6 +16,7 @@ void killProcessName(std::string processName);
 std::string windowsVerify(std::wstring pwszSourceFile);
 std::string sigCheck(const std::string& filepath);
 
+
 using namespace std;
 #pragma comment(lib, "Wintrust.lib")
 #pragma comment(lib, "Crypt32.lib")
@@ -25,7 +26,7 @@ std::string sigCheck(const std::string& filepath);
 
 int main() {
     //scan all files in c:\windows\system32
-    std::string directory = "c:\\windows\\system32";
+    std::string directory = "c:\\windows";
 
     std::vector<std::string> pe_files;
     std::cout << std::left << std::setw(100) << "Binary_Name" << std::setw(20) << "SigCheck" << std::setw(20) << "WinVerifyTrust_API" << std::endl;
@@ -105,10 +106,55 @@ std::string sigCheck(const std::string& filepath)
     }
     else cout << "Unable to open file";
     //kill unsigned binary files
-    std::string processName = filepath;
-    killProcessName(processName);
+    //std::string processName = filepath;
+    //killProcessName(processName);
 
     return "Unsigned";
+}
+
+std::string windowsVerify(std::wstring pwszSourceFile){
+
+    LONG lStatus;
+    DWORD dwLastError;
+
+    // Initialize the WINTRUST_FILE_INFO structure.
+    WINTRUST_FILE_INFO FileData;
+    memset(&FileData, 0, sizeof(FileData));
+    FileData.cbStruct = sizeof(FileData);
+    FileData.pcwszFilePath = pwszSourceFile.c_str();
+    FileData.hFile = NULL;
+    FileData.pgKnownSubject = NULL;
+
+    // Initialize the WinVerifyTrust input data structure.
+    GUID WVTPolicyGUID = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+    WINTRUST_DATA WinTrustData;
+    memset(&WinTrustData, 0, sizeof(WinTrustData));
+    WinTrustData.cbStruct = sizeof(WinTrustData);
+    WinTrustData.pPolicyCallbackData = NULL;
+    WinTrustData.pSIPClientData = NULL;
+    WinTrustData.dwUIChoice = WTD_UI_NONE;
+    WinTrustData.fdwRevocationChecks = WTD_REVOKE_NONE;
+    WinTrustData.dwUnionChoice = WTD_CHOICE_FILE;
+    WinTrustData.dwStateAction = WTD_STATEACTION_VERIFY;
+    WinTrustData.hWVTStateData = NULL;
+    WinTrustData.pwszURLReference = NULL;
+    WinTrustData.dwUIContext = 0;
+    WinTrustData.pFile = &FileData;
+
+    // WinVerifyTrust verifies signatures as specified by the GUID and Wintrust_Data.
+    lStatus = WinVerifyTrust(NULL, &WVTPolicyGUID, &WinTrustData);
+
+    if (lStatus==ERROR_SUCCESS) {
+        return "Signed";
+    }
+
+    WinTrustData.dwStateAction = WTD_STATEACTION_CLOSE;
+    std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+    std::string filepath = converter.to_bytes(pwszSourceFile.c_str());
+    std::string processName = filepath.substr(filepath.find_last_of("\\") + 1);
+
+    killProcessName(processName);
+    return "unsigned";
 }
 
 void killProcessName(std::string processName){
@@ -155,43 +201,4 @@ void terminateProcess(DWORD pid)
         TerminateProcess(hProcess, 0);
         CloseHandle(hProcess);
     }
-}
-std::string windowsVerify(std::wstring pwszSourceFile){
-
-    LONG lStatus;
-    DWORD dwLastError;
-
-    // Initialize the WINTRUST_FILE_INFO structure.
-    WINTRUST_FILE_INFO FileData;
-    memset(&FileData, 0, sizeof(FileData));
-    FileData.cbStruct = sizeof(FileData);
-    FileData.pcwszFilePath = pwszSourceFile.c_str();
-    FileData.hFile = NULL;
-    FileData.pgKnownSubject = NULL;
-
-    // Initialize the WinVerifyTrust input data structure.
-    GUID WVTPolicyGUID = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-    WINTRUST_DATA WinTrustData;
-    memset(&WinTrustData, 0, sizeof(WinTrustData));
-    WinTrustData.cbStruct = sizeof(WinTrustData);
-    WinTrustData.pPolicyCallbackData = NULL;
-    WinTrustData.pSIPClientData = NULL;
-    WinTrustData.dwUIChoice = WTD_UI_NONE;
-    WinTrustData.fdwRevocationChecks = WTD_REVOKE_NONE;
-    WinTrustData.dwUnionChoice = WTD_CHOICE_FILE;
-    WinTrustData.dwStateAction = WTD_STATEACTION_VERIFY;
-    WinTrustData.hWVTStateData = NULL;
-    WinTrustData.pwszURLReference = NULL;
-    WinTrustData.dwUIContext = 0;
-    WinTrustData.pFile = &FileData;
-
-    // WinVerifyTrust verifies signatures as specified by the GUID and Wintrust_Data.
-    lStatus = WinVerifyTrust(NULL, &WVTPolicyGUID, &WinTrustData);
-
-    if (lStatus==ERROR_SUCCESS) {
-            return "Signed";
-    }
-
-    WinTrustData.dwStateAction = WTD_STATEACTION_CLOSE;
-    return "unsigned";
 }
